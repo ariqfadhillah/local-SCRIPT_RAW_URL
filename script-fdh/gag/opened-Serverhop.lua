@@ -27,7 +27,7 @@ local TweenService = cloneref(game:GetService("TweenService"))
 local PlaceId, JobId = game.PlaceId, game.JobId
 
 -- auto reload setelah teleport
-local SCRIPT_RAW_URL = "https://gist.githubusercontent.com/ariqfadhillah/e9ef574836c3611d55f6a4798f143a51/raw/48c869e7a512f9c35fe6ead205bef52db392dceb/Serverhop.lua"
+local SCRIPT_RAW_URL = "https://raw.githubusercontent.com/ariqfadhillah/local-SCRIPT_RAW_URL/refs/heads/main/script-fdh/gag/opened-Serverhop.lua"
 pcall(function()
     if queueteleport then
         queueteleport(("loadstring(game:HttpGet('%s'))()"):format(SCRIPT_RAW_URL))
@@ -160,3 +160,4 @@ end)
 if not success then
     warn("⚠️ GUI/Animasi gagal dijalankan:", err)
 end
+
