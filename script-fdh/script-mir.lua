@@ -1,3 +1,6 @@
+-- Full final: Rocks ESP (clean, grouped filters, scroll, info, auto-refresh 8s)
+-- Pastikan ini dijalankan sebagai LocalScript (Player client)
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -26,6 +29,14 @@ local rarityColors = {
     Sapphire  = Color3.fromRGB(0,128,255),
     Plutonium = Color3.fromRGB(255,0,255),
     Uranium   = Color3.fromRGB(255,215,0),
+}
+
+-- FIXED rarity tiers (manual known list)
+local fixedRarities = {
+    Uncommon  = {"Mercury","Obsidian","Jade"},
+    Rare      = {"Diamond","Iridium"},
+    VeryRare  = {"Emerald","Sapphire"},
+    Legendary = {"Plutonium","Uranium"},
 }
 
 local function colorFromString(s)
@@ -305,6 +316,14 @@ btnRefresh.MouseButton1Click:Connect(function() scanAndUpdate(true) end)
 
 -- Init
 scanAndUpdate(true)
+-- Pre-register rarity checkboxes from fixed list
+for tier, list in pairs(fixedRarities) do
+    for _, name in ipairs(list) do
+        local c = rarityColors[name] or colorFromString(name)
+        registerCheckbox("Rarity", name, true, c)
+        discoveredRarities[name] = true
+    end
+end
 task.spawn(function()
     while true do
         task.wait(REFRESH_INTERVAL)
