@@ -1,0 +1,306 @@
+
+--[ Dependencies ]--
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+--[ UI Setup (GUI Mandiri) ]--
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "MiningIncXrayGUI"
+screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Name = "StatusLabel"
+statusLabel.Size = UDim2.new(0, 300, 0, 20)
+statusLabel.Position = UDim2.new(0.5, -150, 0, 10)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "Pencarian dinonaktifkan."
+statusLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+statusLabel.TextStrokeColor3 = Color3.fromRGB(153, 117, 0)
+statusLabel.TextStrokeTransparency = 0
+statusLabel.Font = Enum.Font.SourceSans
+statusLabel.TextSize = 14
+statusLabel.Parent = screenGui
+
+--[ Konfigurasi Target Ore ]--
+local targetOres = {
+    "Mercury", "Obsidian", "Jade",
+    "Diamond", "Iridium",
+    "Emerald", "Sapphire",
+    "Plutonium", "Uranium"
+}
+
+local mineralsFolder = game:GetService("Workspace"):FindFirstChild("Minerals")
+
+local isToggledOn = false         -- ESP on/off (M)
+local isMoveOresEnabled = false   -- Move ores on/off (K)
+
+--[ Konfigurasi untuk Fungsi Bor nama truck]--
+local drillPart = nil
+local truckNames = {"Galindo"}
+local originalSize = nil
+local newSize = Vector3.new(60.6, 10.65, 13.6)
+local isDrillToggled = false
+
+-- Posisi target ore dipindahin
+local ORE_TARGET_POS = Vector3.new(149, 12063, -3)
+local movedOres = {} -- penanda ore yang sudah dipindah (key = Instance)
+
+--[ Fungsi-Fungsi ]--
+local function updateStatusText(text)
+    statusLabel.Text = text
+end
+
+-- draw ESP: aman untuk Model atau Part. BillboardGui di-parent ke screenGui.
+local function drawOreEsp(ore)
+    if not ore or not ore.Parent then return end
+
+    -- cari bagian yang bisa di-adornee (BasePart)
+    local adorneePart = nil
+    if ore:IsA("BasePart") then
+        adorneePart = ore
+    elseif ore:IsA("Model") then
+        adorneePart = ore.PrimaryPart or ore:FindFirstChildWhichIsA("BasePart")
+    else
+        adorneePart = ore:FindFirstChildWhichIsA("BasePart")
+    end
+
+    if not adorneePart then
+        return
+    end
+
+    local billboardGui = Instance.new("BillboardGui")
+    billboardGui.Name = "OreEsp"
+    billboardGui.Adornee = adorneePart
+    billboardGui.AlwaysOnTop = true
+    billboardGui.Size = UDim2.new(0, 120, 0, 30)
+    billboardGui.StudsOffset = Vector3.new(0, 2, 0)
+    billboardGui.Parent = screenGui
+
+    local esp = Instance.new("TextLabel")
+    esp.Name = "Text"
+    esp.Size = UDim2.new(1, 0, 1, 0)
+    esp.BackgroundTransparency = 1
+    esp.Text = ore.Name
+    esp.TextColor3 = Color3.fromRGB(255, 215, 0)
+    esp.TextStrokeColor3 = Color3.fromRGB(153, 117, 0)
+    esp.TextStrokeTransparency = 0
+    esp.TextScaled = true
+    esp.TextWrapped = true
+    esp.TextXAlignment = Enum.TextXAlignment.Center
+    esp.TextYAlignment = Enum.TextYAlignment.Center
+    esp.Parent = billboardGui
+end
+
+-- Hapus semua ESP yang dibuat (safe untuk beberapa parent lokasi)
+local function deleteOreEsp()
+    -- hapus dari screenGui
+    for _, child in ipairs(screenGui:GetChildren()) do
+        if child.Name == "OreEsp" then
+            child:Destroy()
+        end
+    end
+    -- juga coba hapus bila ada di objek minerals (backwards compatibility)
+    if mineralsFolder then
+        for _, v in ipairs(mineralsFolder:GetChildren()) do
+            local gui = v:FindFirstChild("OreEsp")
+            if gui then gui:Destroy() end
+        end
+    end
+end
+
+local function cleanMineralsFolder()
+    if mineralsFolder then
+        for _, obj in ipairs(mineralsFolder:GetChildren()) do
+            local keep = false
+            for _, oreName in ipairs(targetOres) do
+                if obj.Name == oreName then
+                    keep = true
+                    break
+                end
+            end
+            if not keep then
+                pcall(function() obj:Destroy() end)
+            end
+        end
+    end
+end
+
+-- Fungsi memindahkan ore satu per satu (aman untuk Model/Part)
+local function moveOresSequentially(ores)
+    coroutine.wrap(function()
+        for _, ore in ipairs(ores) do
+            -- validasi instance masih ada
+            if not ore or not ore.Parent then
+                -- skip jika hilang
+            else
+                if not movedOres[ore] then
+                    movedOres[ore] = true
+
+                    if ore:IsA("Model") then
+                        if ore.PrimaryPart then
+                            pcall(function() ore:SetPrimaryPartCFrame(CFrame.new(ORE_TARGET_POS)) end)
+                        else
+                            -- MoveTo fallback (akan memindahkan model berdasarkan pivot)
+                            pcall(function() ore:MoveTo(ORE_TARGET_POS) end)
+                        end
+                    elseif ore:IsA("BasePart") then
+                        pcall(function() ore.CFrame = CFrame.new(ORE_TARGET_POS) end)
+                    else
+                        -- coba cari BasePart di dalam object
+                        local p = ore:FindFirstChildWhichIsA("BasePart")
+                        if p then
+                            pcall(function() p.CFrame = CFrame.new(ORE_TARGET_POS) end)
+                        end
+                    end
+
+                    wait(1) -- delay 1 detik tiap ore
+                end
+            end
+        end
+    end)()
+end
+
+local function findAndDrawEsp()
+    deleteOreEsp()
+    local totalFound = 0
+    local oresToMove = {}
+    local maxObjects = 150
+
+    if mineralsFolder and totalFound < maxObjects then
+        for _, obj in ipairs(mineralsFolder:GetChildren()) do
+            if totalFound >= maxObjects then break end
+            for _, oreName in ipairs(targetOres) do
+                if obj.Name == oreName then
+                    drawOreEsp(obj)
+                    table.insert(oresToMove, obj)
+                    totalFound = totalFound + 1
+                    break
+                end
+            end
+        end
+    end
+
+    if #oresToMove > 0 then
+        if isMoveOresEnabled then
+            moveOresSequentially(oresToMove)
+            updateStatusText("Pindahin " .. #oresToMove .. " ore target ke lokasi tujuan.")
+        else
+            updateStatusText("ESP aktif. " .. #oresToMove .. " ore target ditemukan.")
+        end
+    else
+        updateStatusText("Tidak ada objek yang dicari ditemukan saat ini.")
+    end
+end
+
+-- Fungsi untuk mencari bor
+local function findDrillPart()
+    local trucksFolder = game.Workspace:FindFirstChild("Trucks")
+    if not trucksFolder then return nil end
+
+    for _, truckName in ipairs(truckNames) do
+        local truckModel = trucksFolder:FindFirstChild(truckName)
+        if truckModel then
+            local drillModel = truckModel:FindFirstChild("Drill")
+            if drillModel then
+                local foundDrillPart = drillModel:FindFirstChild("DrillTouch")
+                if foundDrillPart then
+                    return foundDrillPart
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- Fungsi Teleportasi
+local function teleportToLocation(pos)
+    local char = LocalPlayer.Character
+    if not char then return end
+
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then
+        updateStatusText("Error: Tidak bisa menemukan HumanoidRootPart.")
+        return
+    end
+
+    root.CFrame = CFrame.new(pos) + Vector3.new(0, 5, 0)
+    updateStatusText("Teleportasi berhasil.")
+end
+
+-- Fungsi Toggle Ukuran Bor
+local function toggleDrillSize()
+    if not drillPart then
+        updateStatusText("Error: Objek bor tidak ditemukan.")
+        return
+    end
+
+    if isDrillToggled then
+        drillPart.Size = originalSize
+        isDrillToggled = false
+        updateStatusText("Ukuran bor dikembalikan ke normal.")
+    else
+        drillPart.Size = newSize
+        isDrillToggled = true
+        updateStatusText("Ukuran bor diubah.")
+    end
+end
+
+--[ Mekanisme Toggle Keyboard dan Teleport ]--
+UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+    if gameProcessedEvent then return end
+
+    if input.KeyCode == Enum.KeyCode.M then
+        isToggledOn = not isToggledOn
+        if isToggledOn then
+            updateStatusText("Pencarian diaktifkan. Mencari sekarang...")
+            findAndDrawEsp()
+        else
+            updateStatusText("Pencarian dinonaktifkan. Menghapus semua ESP...")
+            deleteOreEsp()
+        end
+    end
+
+    if input.KeyCode == Enum.KeyCode.K then
+        isMoveOresEnabled = not isMoveOresEnabled
+        if isMoveOresEnabled then
+            updateStatusText("Mode pindah mineral AKTIF.")
+        else
+            updateStatusText("Mode pindah mineral NONAKTIF.")
+        end
+    end
+
+    local teleportPoints = {
+        [Enum.KeyCode.Nine] = Vector3.new(-675, 12055, -861),
+        [Enum.KeyCode.Eight] = Vector3.new(232, 12066, 31),
+        [Enum.KeyCode.Seven] = Vector3.new(-189, 12055, 172),
+        [Enum.KeyCode.Three] = Vector3.new(-219, 12055, 133),
+        [Enum.KeyCode.Five] = Vector3.new(-144, 12060, -284),
+    }
+
+    local targetPosition = teleportPoints[input.KeyCode]
+    if targetPosition then
+        teleportToLocation(targetPosition)
+    end
+
+    if input.KeyCode == Enum.KeyCode.B then
+        toggleDrillSize()
+    end
+end)
+
+--[ Loop Otomatis untuk Pembaruan ]--
+while wait(8) do
+    if isToggledOn then
+        updateStatusText("Memulai pencarian otomatis...")
+        cleanMineralsFolder()
+        findAndDrawEsp()
+    end
+
+    if not drillPart then
+        drillPart = findDrillPart()
+        if drillPart then
+            originalSize = drillPart.Size
+            updateStatusText("Bor ditemukan dan siap digunakan!")
+        end
+    end
+end
